@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 from pydantic import BaseModel
 from typing import Optional
 import hashlib
@@ -149,6 +150,35 @@ async def delete_session(request: SessionRequest, _: bool = Depends(verify_api_k
     result = await telegram_service.delete_session(request.session_id)
     return result
 
+
+from app.telegram_listener import TelegramUserbotListener
+
+# Initialize Listener Manager
+listener_manager = TelegramUserbotListener()
+
+@app.on_event("startup")
+async def startup_event():
+    # In a real scenario, you might want to load active listeners from DB
+    pass
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    # Close all listener sessions
+    for session_id in list(listener_manager.clients.keys()):
+        await listener_manager.stop_session(session_id)
+
+@app.post("/listener/start")
+async def start_listener(request: SessionRequest, _: bool = Depends(verify_api_key)):
+    """Start auto-reply listener for a session"""
+    # Run in background to avoid blocking
+    asyncio.create_task(listener_manager.start_session(request.session_id))
+    return {"success": True, "message": "Listener starting in background"}
+
+@app.post("/listener/stop")
+async def stop_listener(request: SessionRequest, _: bool = Depends(verify_api_key)):
+    """Stop auto-reply listener for a session"""
+    await listener_manager.stop_session(request.session_id)
+    return {"success": True, "message": "Listener stopped"}
 
 if __name__ == "__main__":
     import uvicorn
